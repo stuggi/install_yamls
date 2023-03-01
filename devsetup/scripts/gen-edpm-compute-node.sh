@@ -148,6 +148,16 @@ cat <<EOF >../out/edpm/${EDPM_COMPUTE_NAME}.xml
 </domain>
 EOF
 
+cat <<EOF >../out/edpm/tripleocurrent.repo
+[tripleocurrent]
+name=tripleocurrent
+baseurl="https://trunk.rdoproject.org/centos9/component/tripleo/current/"
+gpgcheck=0
+repo_gpgcheck=0
+enabled=1
+EOF
+
+
 if [ ! -f ${DISK_FILEPATH} ]; then
     if [ ! -f ${CRC_POOL}/centos-9-stream-base.qcow2 ]; then
         pushd ${CRC_POOL}
@@ -167,21 +177,26 @@ if [ ! -f ${DISK_FILEPATH} ]; then
     virt-customize -a ${DISK_FILEPATH} \
         --root-password password:12345678 \
         --hostname ${EDPM_COMPUTE_NAME} \
+        --copy-in ../out/edpm/tripleocurrent.repo:/etc/yum.repos.d \
+        --install python3-tripleo-repos \
         --run-command "systemctl disable cloud-init cloud-config cloud-final cloud-init-local" \
         --run-command "xfs_growfs / || true" \
         --run-command "echo 'PermitRootLogin yes' > /etc/ssh/sshd_config.d/99-root-login.conf" \
         --run-command "mkdir -p /root/.ssh; chmod 0700 /root/.ssh" \
         --run-command "ssh-keygen -f /root/.ssh/id_rsa -N ''" \
         --run-command "echo \"${VIRT_HOST_KNOWN_HOSTS}\" >> /root/.ssh/known_hosts" \
+        --run-command "tripleo-repos -d centos9 -b zed current-tripleo" \
         --ssh-inject root:string:"$(cat $SSH_PUBLIC_KEY)" \
         --selinux-relabel || rm -f ${DISK_FILEPATH}
     if [ ! -f ${DISK_FILEPATH} ]; then
         exit 1
     fi
 fi
+
+sudo virsh net-update default delete ip-dhcp-host "<host name='${EDPM_COMPUTE_NAME}'/>" --config --live || true
 sudo virsh net-update default add-last ip-dhcp-host --xml "<host mac='${MAC_ADDRESS}' name='${EDPM_COMPUTE_NAME}' ip='192.168.122.${IP_ADRESS_SUFFIX}'/>" --config --live
 sudo virsh define ../out/edpm/${EDPM_COMPUTE_NAME}.xml
 sudo virt-copy-out -d ${EDPM_COMPUTE_NAME} /root/.ssh/id_rsa.pub ../out/edpm
-mv ../out/edpm/id_rsa.pub ../out/edpm/${EDPM_COMPUTE_NAME}-id_rsa.pub
+mv -f ../out/edpm/id_rsa.pub ../out/edpm/${EDPM_COMPUTE_NAME}-id_rsa.pub
 cat ../out/edpm/${EDPM_COMPUTE_NAME}-id_rsa.pub | sudo tee -a /root/.ssh/authorized_keys
 sudo virsh start ${EDPM_COMPUTE_NAME}

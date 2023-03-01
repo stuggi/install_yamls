@@ -1,6 +1,7 @@
 CRC_URL ?= 'https://developers.redhat.com/content-gateway/rest/mirror/pub/openshift-v4/clients/crc/latest/crc-linux-amd64.tar.xz'
 KUBEADMIN_PWD ?= 12345678
 PULL_SECRET  ?= ${PWD}/pull-secret.txt
+CRC_DEFAULT_NETWORK_IP ?= 192.168.122.10
 EDPM_COMPUTE_SUFFIX ?= 0
 EDPM_COMPUTE_IP ?= 192.168.122.100
 OPENSTACK_RUNNER_IMG ?= quay.io/openstack-k8s-operators/openstack-ansibleee-runner:latest
@@ -44,11 +45,20 @@ download_tools: ## Runs an ansible playbook to install required tools with the v
 	download_tools.yaml
 
 .PHONY: crc_attach_default_interface
-crc_attach_default_interface:
-	sudo virsh attach-interface crc --source default --type network --model virtio --config --persistent
+crc_attach_default_interface: ## Attach default libvirt network to CRC
+	-CURRENT_MAC=$(shell sudo virsh net-dumpxml default | grep crc | sed -e "s/.*mac='\(.*\)' name.*/\1/"); \
+	sudo virsh detach-interface crc network --mac "$$CURRENT_MAC"
+	-sudo virsh net-update default delete ip-dhcp-host "<host name='crc'/>" --config --live
+	sleep 5
+	MAC_ADDRESS=$(shell echo -n 52:54:00; dd bs=1 count=3 if=/dev/random 2>/dev/null | hexdump -v -e '/1 "-%02X"' | tr '-' ':'); \
+	sudo virsh net-update default add-last ip-dhcp-host --xml "<host mac='$$MAC_ADDRESS' name='crc' ip='${CRC_DEFAULT_NETWORK_IP}'/>" --config --live; \
+	sudo virsh attach-interface crc --source default --type network --model virtio --mac $$MAC_ADDRESS --config --persistent; \
+	sleep 10; \
+	WORKER=$(shell oc get nodes -l node-role.kubernetes.io/worker -o jsonpath="{.items[*].metadata.name}"); \
+	oc debug node/$$WORKER -- ip -o link | awk 'toupper($$0) ~ /ETHER $$MAC_ADDRESS/{print $$2}'  | awk -F: '{print $$1}'
 
 .PHONY: edpm_compute
-edpm_compute:
+edpm_compute: ## Create EDPM compute VM
 	scripts/gen-ansibleee-ssh-key.sh
 	scripts/gen-edpm-compute-node.sh ${EDPM_COMPUTE_SUFFIX}
 
