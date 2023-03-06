@@ -1067,12 +1067,28 @@ nncp: ## installs the nncp resources to configure the interface connected to the
 	oc apply -f ${DEPLOY_DIR}/
 	oc wait nncp -l osp/interface=${NNCP_INTERFACE} --for condition=available --timeout=120s
 
+.PHONY: nncp_cleanup
+nncp_cleanup: export INTERFACE=${NNCP_INTERFACE}
+nncp_cleanup: ## unconfigured nncp configuration on worker node and deletes the nncp resource
+	$(eval $(call vars,$@,nncp))
+	sed -i 's/state: up/state: absent/' ${DEPLOY_DIR}/*_nncp.yaml
+	oc apply -f ${DEPLOY_DIR}/
+	oc wait nncp -l osp/interface=${NNCP_INTERFACE} --for condition=available --timeout=120s
+	oc delete --ignore-not-found=true -f ${DEPLOY_DIR}/
+	rm -Rf ${DEPLOY_DIR}
+
 .PHONY: netattach
 netattach: export INTERFACE=${NNCP_INTERFACE}
 netattach: namespace ## Creates network-attachment-definitions for the networks the workers are attached via nncp
 	$(eval $(call vars,$@,netattach))
 	bash scripts/gen-netatt.sh
 	oc apply -f ${DEPLOY_DIR}/
+
+.PHONY: netattach_cleanup
+netattach_cleanup: ## Creates network-attachment-definitions for the networks the workers are attached via nncp
+	$(eval $(call vars,$@,netattach))
+	oc delete --ignore-not-found=true -f ${DEPLOY_DIR}/
+	rm -Rf ${DEPLOY_DIR}
 
 ##@ METALLB
 .PHONY: metallb
@@ -1101,6 +1117,14 @@ metallb_config: ## creates the IPAddressPools and l2advertisement resources
 	bash scripts/gen-olm-metallb.sh
 	oc apply -f ${DEPLOY_DIR}/ipaddresspools.yaml
 	oc apply -f ${DEPLOY_DIR}/l2advertisement.yaml
+
+.PHONY: metallb_config_cleanup
+metallb_config_cleanup: export NAMESPACE=metallb-system
+metallb_config_cleanup: ## creates the IPAddressPools and l2advertisement resources
+	$(eval $(call vars,$@,metallb))
+	oc delete --ignore-not-found=true -f ${DEPLOY_DIR}/ipaddresspools.yaml
+	oc delete --ignore-not-found=true -f ${DEPLOY_DIR}/l2advertisement.yaml
+	rm -f ${DEPLOY_DIR}/ipaddresspools.yaml ${DEPLOY_DIR}/l2advertisement.yaml
 
 ##@ EDPM
 .PHONY: edpm_deploy

@@ -110,8 +110,6 @@ metadata:
   name: l2advertisement
   namespace: metallb-system
 spec:
-  interfaces:
-  - ${INTERFACE}
   ipAddressPools:
   - internalapi
   - tenant
